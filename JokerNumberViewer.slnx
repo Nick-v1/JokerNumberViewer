@@ -1,0 +1,6 @@
+<Solution>
+  <Folder Name="/Solution Items/">
+    <File Path="build.ps1" />
+  </Folder>
+  <Project Path="Backend/Backend.csproj" Id="f8d69311-4e48-400f-bc30-80dc371fd27a" />
+</Solution>
