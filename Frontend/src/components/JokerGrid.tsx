@@ -4,12 +4,28 @@ import { AgGridReact } from 'ag-grid-react'
 import { ModuleRegistry, AllCommunityModule, themeQuartz, colorSchemeDarkBlue, type ColDef } from 'ag-grid-community'
 import type { JokerDraw } from '../types/jokerDraw'
 import { flattenDraw } from '../utils/flattenJokerDraw'
+import { FileText } from 'lucide-react'
 
 ModuleRegistry.registerModules([AllCommunityModule])
 const darkTheme = themeQuartz.withPart(colorSchemeDarkBlue).withParams({
     accentColor: '#4f79f7',
     borderRadius: 6,
-  })
+})
+
+async function downloadPdf(year: string) {
+    const res = await fetch(`/api/joker-data/${year}/pdf`)
+    if (!res.ok) {
+    console.error('Failed to generate PDF')
+    return
+    }
+    const blob = await res.blob()
+    const url = window.URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `Joker_${year}_Results.pdf`
+    a.click()
+    window.URL.revokeObjectURL(url)
+}
 
 interface JokerGridProps {
     years: string[]
@@ -64,6 +80,15 @@ export default function JokerGrid({ years, selectedYear, onYearChange }: JokerGr
           onChange={(e) => setQuickFilter(e.target.value)}
           style={{ padding: 6, width: 250 }}
         />
+
+        <button
+            onClick={() => downloadPdf(selectedYear)}
+            disabled={!selectedYear}
+            style={{ display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+            <FileText size={16} />
+            Export {selectedYear} year's results
+        </button>
       </div>
 
       <div style={{ height: 600, width: '100%' }}>

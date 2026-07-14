@@ -1,5 +1,9 @@
 using Backend.Models;
-using ClosedXML.Excel;
+using Backend.Utils;
+using QuestPDF.Fluent;
+using QuestPDF.Helpers;
+
+QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
 
 var builder = WebApplication.CreateBuilder(new WebApplicationOptions
 {
@@ -27,47 +31,90 @@ app.MapGet("/api/joker-years", () =>
 
 app.MapGet("/api/joker-data/{year}", (string year) =>
 {
-    if (!int.TryParse(year, out _))
-        return Results.BadRequest("Invalid year.");
-
-    var filePath = Path.Combine(AppContext.BaseDirectory, "Resources", $"Joker_{year}.xlsx");
-
-    if (!File.Exists(filePath))
-        return Results.NotFound($"No data found for year {year}.");
-
-    using var workbook = new XLWorkbook(filePath);
-    var worksheet = workbook.Worksheet(1);
-    var prizeCategories = new[] { "5 + 1", "5", "4 + 1", "4", "3 + 1", "3", "2 + 1", "1 + 1", "2" };
-    var results = new List<JokerDraw>();
-
-    var lastRow = worksheet.LastRowUsed()!.RowNumber();
-    for (int r = 4; r <= lastRow; r++)
+    if (!int.TryParse(year, out _)) return Results.BadRequest("Invalid year.");
+    try
     {
-        var row = worksheet.Row(r);
-        var drawNumber = row.Cell(1).GetString();
-        if (string.IsNullOrWhiteSpace(drawNumber)) continue;
+        return Results.Ok(Parser.ParseJokerFile(year));
+    }
+    catch (FileNotFoundException ex)
+    {
+        return Results.NotFound(ex.Message);
+    }
+});
 
-        var numbers = new[]
-        {
-            row.Cell(3).GetString(), row.Cell(4).GetString(), row.Cell(5).GetString(),
-            row.Cell(6).GetString(), row.Cell(7).GetString()
-        }.Select(int.Parse).ToArray();
+app.MapGet("/api/joker-data/{year}/pdf", (string year) =>
+{
+    if (!int.TryParse(year, out _)) return Results.BadRequest("Invalid year.");
 
-        var prizes = new List<PrizeTier>();
-        int col = 10;
-        foreach (var category in prizeCategories)
-        {
-            prizes.Add(new PrizeTier(category, row.Cell(col).GetString(), row.Cell(col + 1).GetString()));
-            col += 2;
-        }
-
-        results.Add(new JokerDraw(
-            drawNumber, row.Cell(2).GetString(), numbers,
-            int.Parse(row.Cell(8).GetString()), row.Cell(9).GetString(), prizes
-        ));
+    List<JokerDraw> draws;
+    try
+    {
+        draws = Parser.ParseJokerFile(year);
+    }
+    catch (FileNotFoundException ex)
+    {
+        return Results.NotFound(ex.Message);
     }
 
-    return Results.Ok(results);
+    var document = Document.Create(container =>
+    {
+        container.Page(page =>
+        {
+            page.Size(PageSizes.A4.Landscape());
+            page.Margin(20);
+            page.DefaultTextStyle(x => x.FontSize(9));
+
+            page.Header()
+                .Text($"Joker {year} Results")
+                .FontSize(18).Bold();
+
+            page.Content().Table(table =>
+            {
+                table.ColumnsDefinition(columns =>
+                {
+                    columns.RelativeColumn();  // Draw #
+                    columns.RelativeColumn();  // Date
+                    columns.RelativeColumn(2); // Numbers
+                    columns.RelativeColumn();  // Joker
+                    columns.RelativeColumn();  // 5+1 Matches
+                    columns.RelativeColumn();  // 5+1 Winnings
+                });
+
+                table.Header(header =>
+                {
+                    header.Cell().Text("Draw #").Bold();
+                    header.Cell().Text("Date").Bold();
+                    header.Cell().Text("Numbers").Bold();
+                    header.Cell().Text("Joker").Bold();
+                    header.Cell().Text("5+1 Matches").Bold();
+                    header.Cell().Text("5+1 Winnings").Bold();
+                });
+
+                foreach (var draw in draws)
+                {
+                    var topPrize = draw.Prizes.FirstOrDefault(p => p.Category == "5 + 1");
+
+                    table.Cell().Text(draw.DrawNumber);
+                    table.Cell().Text(draw.Date);
+                    table.Cell().Text(string.Join(", ", draw.Numbers));
+                    table.Cell().Text(draw.JokerNumber.ToString());
+                    table.Cell().Text(topPrize?.Matches ?? "-");
+                    table.Cell().Text(topPrize?.Winnings ?? "-");
+                }
+            });
+
+            page.Footer()
+                .AlignCenter()
+                .Text(x =>
+                {
+                    x.Span("Page ");
+                    x.CurrentPageNumber();
+                });
+        });
+    });
+
+    var pdfBytes = document.GeneratePdf();
+    return Results.File(pdfBytes, "application/pdf", $"Joker_{year}_Results.pdf");
 });
 
 app.MapFallbackToFile("index.html");

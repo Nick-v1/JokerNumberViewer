@@ -18,11 +18,13 @@ function App() {
   return (
     <div className="app">
       <h1>Joker {selectedYear || '...'} Results</h1>
+
       <JokerGrid
         years={years}
         selectedYear={selectedYear}
         onYearChange={setSelectedYear}
          />
+        
     </div>
   )
 }
